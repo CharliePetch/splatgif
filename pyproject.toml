@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "splatgif"
+dynamic = ["version"]
+description = "One photo in, a 3D 'wigglegram' GIF out. Apple's SHARP predicts a Gaussian splat; a small CPU rasteriser sways a camera around it."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT AND LicenseRef-Apple-ML-SHARP"
+license-files = ["LICENSE", "licenses/*"]
+authors = [{ name = "Charlie Petch" }]
+keywords = ["gif", "wigglegram", "3d", "parallax", "gaussian-splatting", "sharp", "view-synthesis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "torch>=2.1",
+    "numpy>=1.24",
+    "Pillow>=9.1",
+    "numba>=0.59",
+]
+
+[project.optional-dependencies]
+heic = ["pillow-heif"]
+dev = ["pytest>=8", "ruff", "build", "twine"]
+
+[project.scripts]
+splatgif = "splatgif.cli:main"
+
+[tool.hatch.version]
+path = "src/splatgif/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/splatgif"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/splatgif", "tests", "licenses", "LICENSE", "README.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: needs the SHARP weights (2.8 GB) and several minutes of CPU"]
+addopts = "-ra -q -m 'not slow'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
