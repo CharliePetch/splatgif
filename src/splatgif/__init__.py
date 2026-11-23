@@ -8,16 +8,22 @@ from typing import TYPE_CHECKING
 __version__ = "0.1.0"
 
 if TYPE_CHECKING:
+    from .depth import DepthMap, load_depth, write_depth  # noqa: F401
     from .gif import save_gif  # noqa: F401
     from .motion import MOTIONS  # noqa: F401
-    from .pipeline import GifInfo, make_gif  # noqa: F401
+    from .pipeline import DepthInfo, GifInfo, make_depth, make_gif  # noqa: F401
     from .splat import Splat, predict  # noqa: F401
 
 # Resolved on first use so that `splatgif --help` does not pay for importing torch.
 _LAZY = {
     "MOTIONS": "motion",
+    "DepthInfo": "pipeline",
     "GifInfo": "pipeline",
+    "make_depth": "pipeline",
     "make_gif": "pipeline",
+    "DepthMap": "depth",
+    "load_depth": "depth",
+    "write_depth": "depth",
     "Splat": "splat",
     "predict": "splat",
     "save_gif": "gif",

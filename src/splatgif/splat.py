@@ -84,6 +84,16 @@ class Splat:
             for yaw in sway(motion, frames)
         ]
 
+    def depth_map(self, size: int = 640):
+        """The scene's depth as a :class:`splatgif.depth.DepthMap` (NaN: no surface there).
+
+        Measured from the photo's own camera at rest, so it lines up with frame 0 of
+        :meth:`render` at the same ``size``. Metres, if the photo's lens data was right.
+        """
+        from .depth import depth_map as _depth_map
+
+        return _depth_map(self, size)
+
 
 def predict(
     photo: Photo | str | Path,

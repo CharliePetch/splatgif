@@ -73,6 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="X,Y",
         help="pixel to pivot on, as fractions of width,height (default: the centre)",
     )
+    p.add_argument(
+        "--depth",
+        metavar="FILE",
+        help="measure depth instead of making a GIF: FILE ends in .npz (float32 metres) or "
+        ".png (16-bit, metres x 256, 0 = none); --size sets its long edge, and the GIF-only "
+        "options are ignored",
+    )
+    p.add_argument(
+        "--depth-cmap",
+        action="store_true",
+        help="with --depth: a coloured picture (red near, violet far) instead of numbers",
+    )
     p.add_argument("--no-dither", action="store_true", help="smaller file, more banding")
     p.add_argument("--device", help="cuda, mps or cpu (default: the best available)")
     p.add_argument("--weights", metavar="PATH", help="SHARP checkpoint (default: download once)")
@@ -84,26 +96,43 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.depth and args.output:
+        parser.error("--depth names its own file: drop -o/--output")
+    if args.depth_cmap and not args.depth:
+        parser.error("--depth-cmap needs --depth FILE")
 
-    from .pipeline import make_gif
+    from .pipeline import make_depth, make_gif
 
     try:
-        info = make_gif(
-            args.image,
-            args.output,
-            size=args.size,
-            motion=args.motion,
-            frames=args.frames,
-            delay_ms=args.delay,
-            focus=args.focus,
-            dither=not args.no_dither,
-            device=args.device,
-            weights=args.weights,
-            accept_license=args.accept_license,
-            log=None if args.quiet else lambda msg: print(f"splatgif: {msg}", file=sys.stderr),
-        )
-    except (FileNotFoundError, RuntimeError, ImportError, OSError) as exc:
+        if args.depth:
+            info = make_depth(
+                args.image,
+                args.depth,
+                size=args.size,
+                cmap=args.depth_cmap,
+                device=args.device,
+                weights=args.weights,
+                accept_license=args.accept_license,
+                log=None if args.quiet else lambda msg: print(f"splatgif: {msg}", file=sys.stderr),
+            )
+        else:
+            info = make_gif(
+                args.image,
+                args.output,
+                size=args.size,
+                motion=args.motion,
+                frames=args.frames,
+                delay_ms=args.delay,
+                focus=args.focus,
+                dither=not args.no_dither,
+                device=args.device,
+                weights=args.weights,
+                accept_license=args.accept_license,
+                log=None if args.quiet else lambda msg: print(f"splatgif: {msg}", file=sys.stderr),
+            )
+    except (FileNotFoundError, RuntimeError, ImportError, OSError, ValueError) as exc:
         print(f"splatgif: {exc}", file=sys.stderr)
         return 1
     print(info.path)

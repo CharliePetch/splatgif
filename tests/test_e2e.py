@@ -39,3 +39,21 @@ def test_photo_to_gif_with_the_real_model(tmp_path):
     assert info.focus_depth > 0 and not info.exif_focal
     with Image.open(info.path) as gif:
         assert gif.size == (320, 240) and gif.info["loop"] == 0
+
+
+def test_depth_map_of_the_real_scene(tmp_path):
+    photo = tmp_path / "scene.jpg"
+    synthetic_photo(photo)
+    out = tmp_path / "d.npz"
+    info = splatgif.make_depth(photo, out, size=320, device="cpu")
+
+    assert (info.width, info.height) == (320, 240) and not info.exif_focal
+    assert 0.2 < info.min_depth < info.max_depth < 255.0
+    assert info.invalid_px < 0.1 * 320 * 240
+    dm = splatgif.load_depth(out)
+    assert (dm.width, dm.height) == (320, 240) and dm.exif_focal is False
+    # A ground plane runs away from the camera up the frame: its bottom rows are nearer than
+    # the rows just under the horizon.
+    near_ground = np.nanmedian(dm.depth[-8:, :])
+    far_ground = np.nanmedian(dm.depth[int(240 * 0.62) : int(240 * 0.66), :])
+    assert near_ground < far_ground

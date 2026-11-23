@@ -80,6 +80,55 @@ frames = splat.render(size=640, motion="drastic", focus=(0.7, 0.6))   # list of 
 splatgif.save_gif(frames, "drastic.gif")
 ```
 
+## Depth maps
+
+The splat is also a depth map. `--depth FILE` measures the scene instead of animating it:
+
+```bash
+splatgif photo.jpg --depth depth.png --size 1280     # 16-bit PNG: metres x 256, 0 = no surface
+splatgif photo.jpg --depth depth.npz                 # float32 metres, NaN = no surface
+splatgif photo.jpg --depth look.png --depth-cmap     # a picture for eyes: red near, violet far
+```
+
+`--size` is the long edge, as for the GIF. Use the photo's own long edge and the map lines up with
+the photo (and with frame 0 of the GIF) pixel for pixel, give or take rounding to even sizes. The
+GIF-only options are ignored. The depth pass takes under a second at 1280 px once numba has compiled
+(a few seconds on the very first run); the SHARP prediction before it costs what it costs for a GIF.
+
+What the numbers are:
+
+* **Metres, if the lens was right.** SHARP predicts metric depth, but only as well as it knows the
+  focal length. A photo without EXIF lens data (screenshots, chat apps) is read as a 30 mm lens,
+  and the scale is then approximate; the ordering and proportions are still right. splatgif says
+  so when it happens, and the files record it.
+* **z-depth**: distance along the optical axis, not from the camera centre.
+* **The median depth of each pixel's ray**: the z where its accumulated opacity first reaches one
+  half, using the same Gaussians in the same order as the colour render. Silhouettes stay sharp
+  where an average would smear near and far together (on a test portrait, across 612 strong depth
+  steps, the median 10 to 90 % transition was 3 px at 1280). A pixel the Gaussians never make half
+  opaque is empty.
+
+Files: `.npz` is lossless (float32 `depth`, plus `f_px` and `exif_focal`). `.png` and `.tif` are
+16-bit grayscale in the KITTI convention (value = metres x 256, 0 = empty, saturating at 255.99 m,
+resolution 0.004 m). A PNG also carries the focal length and the `exif_focal` flag in a
+`splatgif-depth` text chunk. `--depth-cmap` writes a picture instead, scaled per image over
+inverse depth; it holds no numbers and cannot be loaded back.
+
+```python
+splat = splatgif.predict("photo.jpg")                # the slow step, once
+dm = splat.depth_map(1280)                           # DepthMap: .depth (h, w) float32, NaN = empty
+splatgif.write_depth(dm, "depth.png")                # or .npz; cmap=True for a picture
+dm = splatgif.load_depth("depth.png")                # back to float32 metres (within 0.002 m)
+# camera-space position of pixel (u, v), width w and height h:
+#   x = (u + .5 - w / 2) * z / dm.f_px,  y = (v + .5 - h / 2) * z / dm.f_px,  z = dm.depth[v, u]
+```
+
+**Distrust the border.** SHARP pulls its outermost Gaussians toward the camera. On a test portrait
+the wall behind the subject is 1.5 to 1.9 m away, yet 95 % of the Gaussians within 32 px of the
+frame edge (at 1280 px) sit nearer than 0.7 m. That is in the splat itself, not added by the depth
+pass, so every map shows a band of about 30 px at 1280 (2.5 % of each side) that reads nearer than
+the scene it frames. Crop it before using the numbers for anything.
+
 ## What to expect
 
 Measured on an i5-4570 (4 cores, 16 GB, no GPU):
@@ -89,6 +138,7 @@ Measured on an i5-4570 (4 cores, 16 GB, no GPU):
 | SHARP forward pass | about 2 min on that CPU (seconds on a GPU) | about 6 GB peak |
 | Render, 640 px | about 0.25 s per frame | |
 | Render, 1280 px | about 0.5 s per frame | |
+| Depth map, 1280 px | under 1 s | |
 
 A 48-frame 1280 px GIF runs to tens of megabytes; convert to MP4 to share it
 (`ffmpeg -stream_loop 4 -i in.gif -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" out.mp4`).
@@ -118,6 +168,8 @@ Limits worth knowing:
    blending) draws each frame.
 6. **GIF.** One 256-colour palette is built from pixels sampled across every frame (a palette per
    frame makes colours crawl), then each frame is Floyd-Steinberg dithered onto it.
+7. **Depth (`--depth`).** Instead of steps 3 to 6, the same rasteriser walk records, per pixel, the
+   z at which the ray turns half opaque.
 
 ## Development
 

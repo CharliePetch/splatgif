@@ -1,11 +1,35 @@
-"""Synthetic scenes for tests that must not need the 2.8 GB weights."""
+"""Stand-ins for the SHARP network and other synthetic fixtures (no weights needed)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
+import torch.nn.functional as F
+from PIL import Image
 
+from splatgif.model import Raw
 from splatgif.splat import Splat
+
+
+class FakePredictor:
+    """Describes the photo as a flat sheet of Gaussians at depth 3, in the network's NDC terms."""
+
+    def __call__(self, image, f_px, width):
+        g, z = 48, 3.0
+        colors = F.interpolate(image, size=(g, g), mode="area")[0]
+        ndc = 2 * (torch.arange(g) + 0.5) / g - 1
+        gy, gx = torch.meshgrid(ndc, ndc, indexing="ij")
+        n = g * g
+        return Raw(
+            means=torch.stack(
+                [z * gx.reshape(-1), z * gy.reshape(-1), torch.full((n,), z)], dim=-1
+            ),
+            scales=torch.full((n, 3), 0.6 * z * 2 / g),
+            quats=torch.tensor([[1.0, 0, 0, 0]]).repeat(n, 1),
+            colors=colors.reshape(3, -1).T.contiguous(),
+            opacities=torch.full((n,), 0.9),
+        )
 
 
 def isotropic_cov(sigma: np.ndarray) -> np.ndarray:
@@ -50,6 +74,16 @@ def dots(
 
 
 @pytest.fixture
+def fake_model(monkeypatch):
+    """Make splatgif.predict() cheap and exact: a flat sheet at depth 3, no weights needed."""
+    from splatgif import splat
+
+    monkeypatch.setattr(splat, "resolve_weights", lambda *a, **k: "unused.pt")
+    monkeypatch.setattr(splat, "load_predictor", lambda *a, **k: FakePredictor())
+    return FakePredictor
+
+
+@pytest.fixture
 def smooth_image() -> np.ndarray:
     """A smooth 64x48 colour image (gradients plus a soft blob): easy to reproduce with splats."""
     h, w = 48, 64
@@ -58,3 +92,11 @@ def smooth_image() -> np.ndarray:
     g = 40 + 170 * v / h
     b = 60 + 120 * np.exp(-(((u - 32) / 14) ** 2 + ((v - 24) / 10) ** 2))
     return np.clip(np.stack([r, g, b], axis=-1), 0, 255).astype(np.uint8)
+
+
+@pytest.fixture
+def photo_file(tmp_path, smooth_image):
+    """The smooth image on disk, 96 x 64: landscape, so x and y scales of the camera differ."""
+    path = tmp_path / "scene.jpg"
+    Image.fromarray(smooth_image).resize((96, 64), Image.Resampling.BILINEAR).save(path, quality=98)
+    return path

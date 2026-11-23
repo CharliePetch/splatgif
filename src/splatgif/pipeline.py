@@ -1,4 +1,4 @@
-"""photo -> GIF in one call."""
+"""photo -> GIF (or depth map) in one call."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from .gif import save_gif
 from .photo import load_photo
@@ -88,4 +90,84 @@ def make_gif(
         device=dev.type,
         predict_s=predict_s,
         render_s=render_s,
+    )
+
+
+@dataclass(frozen=True)
+class DepthInfo:
+    path: Path
+    width: int
+    height: int
+    bytes: int
+    min_depth: float  # metres, if the lens data was right (see exif_focal)
+    max_depth: float
+    invalid_px: int  # pixels no Gaussian made half opaque (NaN / 0 in the file)
+    focal_px: float
+    exif_focal: bool  # False: no focal length in the photo, so 30 mm was assumed
+    gaussians: int
+    device: str
+    predict_s: float
+    measure_s: float
+
+
+DEPTH_SUFFIXES = (".png", ".npz")
+
+
+def make_depth(
+    image: str | Path,
+    output: str | Path | None = None,
+    *,
+    size: int = 640,
+    cmap: bool = False,
+    device: str | None = None,
+    weights: str | Path | None = None,
+    accept_license: bool = False,
+    log: Callable[[str], None] | None = None,
+) -> DepthInfo:
+    """Turn one photo into a depth map and return what was made.
+
+    ``size`` is the long edge, like the GIF. ``output`` ends in ``.npz`` (lossless) or ``.png``
+    (16-bit, metres x 256; with ``cmap=True`` a coloured picture instead); see
+    :mod:`splatgif.depth`. Prediction dominates the time; the depth pass itself is seconds.
+    """
+    from .depth import depth_map, write_depth
+
+    say = log or (lambda _msg: None)
+    image = Path(image)
+    output = Path(output) if output else image.with_suffix(".depth.png")
+    if output.suffix.lower() not in DEPTH_SUFFIXES:
+        raise ValueError(f"depth file must end in {' or '.join(DEPTH_SUFFIXES)}: {output}")
+
+    photo = load_photo(image)
+    note = "" if photo.exif_focal else "  (no EXIF focal length: assuming a 30 mm lens)"
+    say(f"{image.name}: {photo.width}x{photo.height}, f = {photo.f_px:.0f} px{note}")
+
+    dev = pick_device(device)
+    say(f"predicting a Gaussian splat with SHARP on {dev.type} ...")
+    started = time.perf_counter()
+    splat = predict(photo, weights=weights, device=str(dev), accept_license=accept_license)
+    predict_s = time.perf_counter() - started
+    say(f"  {len(splat.means):,} Gaussians in {predict_s:.0f} s")
+
+    started = time.perf_counter()
+    dm = depth_map(splat, size)
+    nbytes = write_depth(dm, output, cmap=cmap)
+    measure_s = time.perf_counter() - started
+    invalid = int(dm.depth.size - np.isfinite(dm.depth).sum())
+    say(f"wrote {output} ({nbytes / 1e6:.1f} MB, {dm.width}x{dm.height}) in {measure_s:.1f} s")
+
+    return DepthInfo(
+        path=output,
+        width=dm.width,
+        height=dm.height,
+        bytes=nbytes,
+        min_depth=float(np.nanmin(dm.depth)),
+        max_depth=float(np.nanmax(dm.depth)),
+        invalid_px=invalid,
+        focal_px=dm.f_px,
+        exif_focal=photo.exif_focal,
+        gaussians=len(splat.means),
+        device=dev.type,
+        predict_s=predict_s,
+        measure_s=measure_s,
     )
