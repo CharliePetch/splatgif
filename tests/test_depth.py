@@ -165,8 +165,12 @@ def test_files_round_trip(tmp_path):
 
     quant = tmp_path / "z.png"
     assert write_depth(dm, quant) > 0
+    # The file itself must be 16-bit greyscale (IHDR bit depth 16, colour type 0). Pillow's mode
+    # for it varies by version: newer releases open it as "I;16", Pillow 9.1 (our floor) as "I".
+    header = quant.read_bytes()[:26]
+    assert header[12:16] == b"IHDR" and (header[24], header[25]) == (16, 0)
     with Image.open(quant) as img:
-        assert img.mode == "I;16"
+        assert img.mode in ("I;16", "I")
         assert json.loads(img.info["splatgif-depth"])["scale"] == SCALE
     back = load_depth(quant)
     assert (np.isnan(back.depth) == np.isnan(z)).all(), "holes must stay holes"
